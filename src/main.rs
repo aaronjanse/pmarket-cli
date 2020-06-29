@@ -10,17 +10,15 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
 
+mod errors;
+mod api;
+mod commands;
+
 fn main() {
   let matches = App::new("pm")
     .about("Prediction Market CLI")
     .version("0.0.1")
     .author("Aaron Janse")
-    .arg(
-      Arg::with_name("token-file")
-        .long("token-file")
-        .global(true)
-        .default_value("/tmp/pmarket-token.txt"),
-    )
     .subcommand(
       App::new("signup")
         .arg(
@@ -117,29 +115,39 @@ fn main() {
         .after_help("By default, tradable events are shown."),
     )
     .subcommand(
-      App::new("event")
-        .about("View details about an event")
-        .arg(Arg::with_name("id").takes_value(true).about("Event ID")),
+      App::new("event").about("View details about an event").arg(
+        Arg::with_name("id")
+          .takes_value(true)
+          .required(true)
+          .about("Event ID"),
+      ),
     )
     .subcommand(
       App::new("stock")
         .about("View details about a stock")
         .arg(Arg::with_name("id").takes_value(true).about("Stock ID")),
     )
-    .subcommand(App::new("buy").about("Buy shares of a stock"))
-    .subcommand(App::new("sell").about("Sell shares of a stock"))
+    .subcommand(
+      App::new("buy")
+        .about("Buy shares of a stock")
+        .arg(Arg::with_name("id").takes_value(true).about("Stock ID")),
+    )
+    .subcommand(
+      App::new("sell")
+        .about("Sell shares of a stock")
+        .arg(Arg::with_name("id").takes_value(true).about("Stock ID")),
+    )
     .get_matches();
 
-  println!("{:?}", matches.subcommand_name());
   let needs_auth = match matches.subcommand_name() {
     Some("buy") | Some("sell") | Some("portfolio") | Some("admin") => true,
     _ => false,
   };
 
   let mut token: String = "".to_string();
-  let token_file = matches.value_of("token-file").unwrap();
+  let token_file = "xx";
   if needs_auth {
-    token = fs::read_to_string(token_file).unwrap().trim().to_string();
+    // token = fs::read_to_string(token_file).unwrap().trim().to_string();
   }
   let tmp_tok_val_str = format!("SESSION-TOKEN={}", token);
   let token_cookie_value = HeaderValue::from_str(&tmp_tok_val_str).unwrap();
@@ -189,254 +197,42 @@ fn main() {
       file.write_all(got_token.as_bytes());
       println!("TOK : {:?}", got_token);
     }
-    Some("list") => {
-      // [{"id":1,"title":"USA 2020 Presedential Election","description":"Who will win?","opens":"2021-01-01T00:00:00Z","closes":"2021-01-01T00:00:00Z","stocks":[{"id":1,"event_id":null,"title":"Trump","price":null},{"id":2,"event_id":null,"title":"Biden","price":null},{"id":3,"event_id":null,"title":"Other","price":null}]}]
-      #[derive(Deserialize, Debug)]
-      struct Event {
-        id: u32,
-        title: String,
-      }
-
-      let events: Vec<Event> = match client.get("http://localhost:8080/event").send() {
+    Some("list") => commands::show_event_list(),
+    Some("event") => {
+      let event_subcommand = matches.subcommand().1.unwrap();
+      let event_id_str = event_subcommand.value_of("id").unwrap();
+      let event_id = match event_id_str.parse::<u32>() {
         Ok(x) => x,
-        Err(err) => {
-          println!("{}", err);
+        Err(_) => {
+          println!("Invalid event ID.");
           return;
         }
-      }
-      .json()
-      .unwrap();
-      let mut table = Table::new();
-      table.set_titles(Row::new(vec![
-        Cell::new("ID").style_spec("bFc"),
-        // Cell::new("State").style_spec("bFc"),
-        // Cell::new("Market Cap").style_spec("brFc"),
-        Cell::new("Title").style_spec("bFc"),
-      ]));
-
-      for event in events {
-        table.add_row(Row::new(vec![
-          Cell::new(&format!("{}", event.id)),
-          // Cell::new("Trading").style_spec("Fg"),
-          // Cell::new("$1,229,102").style_spec("r"),
-          Cell::new(&event.title),
-        ]));
-      }
-      table.set_format(
-        format::FormatBuilder::new()
-          .column_separator(' ')
-          .padding(1, 1)
-          .build(),
-      );
-      table.printstd();
+      };
+      commands::show_event_info(event_id);
     }
-    Some("event") => {
-      println!(
-        "\x1b[2mTitle:\x1b[m   \x1b[93m{}\x1b[m",
-        "Who will win the 2020 USA Presedential Election?"
-      );
-      println!(
-        "\x1b[2mCreated:\x1b[m {}  \
-         \x1b[2mOpens:\x1b[m {}  \
-         \x1b[2mCloses:\x1b[m {} ",
-        "2019-01-01", "2019-10-01", "2020-11-23"
-      );
-      println!();
-
-      let mut table = Table::new();
-      table.add_row(Row::new(vec![
-        Cell::new("0"),
-        Cell::new("57¢").style_spec("r"),
-        Cell::new("Joe Biden"),
-      ]));
-      table.add_row(Row::new(vec![
-        Cell::new("1"),
-        Cell::new("43¢").style_spec("r"),
-        Cell::new("Donald Trump"),
-      ]));
-      table.add_row(Row::new(vec![
-        Cell::new("2"),
-        Cell::new("1¢").style_spec("r"),
-        Cell::new("Bernie Sanders"),
-      ]));
-      table.add_row(Row::new(vec![
-        Cell::new("3"),
-        Cell::new("1¢").style_spec("r"),
-        Cell::new("Other"),
-      ]));
-
-      table.set_titles(Row::new(vec![
-        Cell::new("ID").style_spec("bFc"),
-        Cell::new("Price").style_spec("bFc"),
-        Cell::new("Name").style_spec("bFc"),
-      ]));
-      table.set_format(
-        format::FormatBuilder::new()
-          .column_separator(' ')
-          .padding(1, 0)
-          .build(),
-      );
-
-      table.printstd();
+    Some("stock") => {
+      let stock_subcommand = matches.subcommand().1.unwrap();
+      let stock_id_str = stock_subcommand.value_of("id").unwrap();
+      let stock_id = match stock_id_str.parse::<u32>() {
+        Ok(x) => x,
+        Err(_) => {
+          println!("Invalid stock ID.");
+          return;
+        }
+      };
+      commands::show_stock_info(stock_id);
     }
     Some("buy") => {
-      println!("\x1b[mYour Balance:\x1b[m \x1b[92m$1,317\x1b[m");
-      println!("\x1b[mEvent Title:\x1b[m  \x1b[93m2020 USA Presedential Election\x1b[m");
-      println!("\x1b[mStock Title:\x1b[m  \x1b[93mJoe Biden\x1b[m");
-      println!();
-
-      let confirm_stock = Confirm::new()
-        .with_prompt("Is this the correct stock?")
-        .interact()
-        .unwrap();
-      if !confirm_stock {
-        println!("Purchase cancelled.");
-        return;
-      }
-
-      println!();
-
-      let mut table = Table::new();
-
-      table.set_titles(Row::new(vec![
-        Cell::new("Offers").style_spec("bFc"),
-        Cell::new("Price").style_spec("bFc"),
-      ]));
-      table.add_row(Row::new(vec![
-        Cell::new("173").style_spec("c"),
-        Cell::new("53¢").style_spec("c"),
-      ]));
-      table.add_row(Row::new(vec![
-        Cell::new("120").style_spec("c"),
-        Cell::new("54¢").style_spec("c"),
-      ]));
-      table.add_row(Row::new(vec![
-        Cell::new("97").style_spec("c"),
-        Cell::new("55¢").style_spec("c"),
-      ]));
-      table.add_row(Row::new(vec![
-        Cell::new("50").style_spec("c"),
-        Cell::new("56¢").style_spec("c"),
-      ]));
-      table.set_format(
-        format::FormatBuilder::new()
-          .column_separator(' ')
-          .padding(0, 0)
-          .build(),
-      );
-
-      table.printstd();
-
-      println!();
-
-      let price_str: String = Input::new()
-        .with_prompt("Max price you'll buy at?")
-        .validate_with(|input: &str| -> Result<(), &str> {
-          let valid = match input.parse::<i32>() {
-            Ok(amount) => 0 < amount && amount < 100,
-            Err(_) => false,
-          };
-          if valid {
-            Ok(())
-          } else {
-            Err("Must be a number 0 < x < 100")
-          }
-        })
-        .interact()
-        .unwrap();
-      let price = price_str.parse::<i32>();
-
-      let count_str: String = Input::new()
-        .with_prompt("How many?")
-        .validate_with(|input: &str| -> Result<(), &str> {
-          let valid = match input.parse::<i32>() {
-            Ok(amount) => 0 < amount,
-            Err(_) => false,
-          };
-          if valid {
-            Ok(())
-          } else {
-            Err("Must be a number 0 < x")
-          }
-        })
-        .interact()
-        .unwrap();
-      let count = count_str.parse::<i32>();
-    }
-    Some("admin") => {
-      let (_, admin_res) = matches.subcommand();
-      let admin = admin_res.unwrap();
-
-      use chrono::prelude::*;
-      use chrono::{DateTime, TimeZone, Utc};
-      match admin.subcommand_name() {
-        Some("create-event") => {
-          let (_, create_event_res) = admin.subcommand();
-          let create_event = create_event_res.unwrap();
-
-          println!("{:?}", create_event.value_of("opens"));
-          let opens_sec = create_event
-            .value_of("opens")
-            .unwrap()
-            .parse::<i64>()
-            .unwrap();
-          let opens_time = Utc.timestamp(opens_sec, 0);
-          let opens = format!("{:?}", opens_time);
-
-          let closes_sec = create_event
-            .value_of("closes")
-            .unwrap()
-            .parse::<i64>()
-            .unwrap();
-          let closes_time = Utc.timestamp(closes_sec, 0);
-          let closes = format!("{:?}", closes_time);
-
-          let mut req_map = HashMap::new();
-          req_map.insert("title", create_event.value_of("title").unwrap());
-          req_map.insert("description", create_event.value_of("description").unwrap());
-          req_map.insert("opens", &opens);
-          req_map.insert("closes", &closes);
-
-          let res = client
-            .post("http://localhost:8080/admin/event/create")
-            .json(&req_map)
-            .header(
-              HeaderName::from_lowercase(b"cookie").unwrap(),
-              token_cookie_value,
-            )
-            .send()
-            .unwrap();
+      let buy_subcommand = matches.subcommand().1.unwrap();
+      let stock_id_str = buy_subcommand.value_of("id").unwrap();
+      let stock_id = match stock_id_str.parse::<u32>() {
+        Ok(x) => x,
+        Err(_) => {
+          println!("Invalid stock ID.");
+          return;
         }
-        Some("create-stock") => {
-          let (_, create_stock_res) = admin.subcommand();
-          let create_stock = create_stock_res.unwrap();
-
-          #[derive(Serialize)]
-          struct JSON {
-            title: String,
-            event_id: u32,
-          }
-
-          let res = client
-            .post("http://localhost:8080/admin/stock/create")
-            .json(&JSON {
-              title: create_stock.value_of("title").unwrap().to_string(),
-              event_id: create_stock
-                .value_of("event-id")
-                .unwrap()
-                .parse::<u32>()
-                .unwrap(),
-            })
-            .header(
-              HeaderName::from_lowercase(b"cookie").unwrap(),
-              token_cookie_value,
-            )
-            .send()
-            .unwrap();
-        }
-        None => println!("No admin subcommand was used"),
-        _ => unreachable!(),
-      }
+      };
+      commands::prompt_buy(stock_id);
     }
     None => println!("No subcommand was used"),
     _ => unreachable!(),
