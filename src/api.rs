@@ -2,6 +2,17 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Debug)]
+pub struct Credentials {
+    pub username: String,
+    pub password: String,
+}
+
+pub fn signup(username: String, password: String) -> std::result::Result<(), errors::ClientError> {
+    
+    Ok(())
+}
+
+#[derive(Deserialize, Debug)]
 pub struct EventListItem {
     pub id: u32,
     pub title: String,
